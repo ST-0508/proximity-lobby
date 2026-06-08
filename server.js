@@ -76,6 +76,7 @@ function safeOption(value, allowed, fallback) {
 }
 
 function translationProviderName() {
+  if (process.env.GOOGLE_TRANSLATE_API_KEY) return "Google Cloud Translation";
   if (process.env.OPENAI_API_KEY) return `OpenAI ${OPENAI_MODEL}`;
   if (process.env.LIBRETRANSLATE_URL) return "LibreTranslate";
   return "offline phrasebook";
@@ -283,6 +284,30 @@ async function translateWithOpenAI(text, from, to) {
   return extractOpenAIText(payload);
 }
 
+async function translateWithGoogle(text, from, to) {
+  const response = await fetch(
+    `https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(process.env.GOOGLE_TRANSLATE_API_KEY)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        q: text,
+        source: from,
+        target: to,
+        format: "text"
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Google translation failed with ${response.status}: ${detail.slice(0, 180)}`);
+  }
+
+  const payload = await response.json();
+  return String(payload.data?.translations?.[0]?.translatedText || "").trim();
+}
+
 async function translateWithLibreTranslate(text, from, to) {
   const baseUrl = process.env.LIBRETRANSLATE_URL.replace(/\/$/, "");
   const response = await fetch(`${baseUrl}/translate`, {
@@ -308,6 +333,10 @@ async function translateWithLibreTranslate(text, from, to) {
 async function translateMessage(text, from, to) {
   if (from === to) {
     return { translatedText: text, provider: "same-language" };
+  }
+
+  if (process.env.GOOGLE_TRANSLATE_API_KEY) {
+    return { translatedText: await translateWithGoogle(text, from, to), provider: "google" };
   }
 
   if (process.env.OPENAI_API_KEY) {

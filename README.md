@@ -29,14 +29,22 @@ For a temporary public test from your own computer, use a tunnel such as Cloudfl
 
 The browser calls the server at `/api/translate`, so API keys stay private.
 
-For best translation quality, set:
+For Google Cloud Translation, set:
+
+```bash
+GOOGLE_TRANSLATE_API_KEY=your_google_cloud_translation_key
+```
+
+You must enable **Cloud Translation API** in Google Cloud for that key. Google Cloud Translation is used first when configured.
+
+You can also use OpenAI translation:
 
 ```bash
 OPENAI_API_KEY=your_api_key
 OPENAI_MODEL=gpt-5-mini
 ```
 
-Without `OPENAI_API_KEY`, the app falls back to a small offline phrasebook. That fallback is useful for demos but will not translate arbitrary sentences well.
+Without `GOOGLE_TRANSLATE_API_KEY`, `OPENAI_API_KEY`, or `LIBRETRANSLATE_URL`, the app falls back to a small offline phrasebook. That fallback is useful for demos but will not translate arbitrary sentences well.
 
 You can also use a LibreTranslate-compatible service:
 
@@ -45,7 +53,7 @@ LIBRETRANSLATE_URL=https://your-libretranslate-server.example
 LIBRETRANSLATE_API_KEY=optional_key
 ```
 
-OpenAI is used first when both providers are configured.
+Provider priority is Google Cloud Translation, OpenAI, LibreTranslate, then the offline phrasebook.
 
 ## Health Check
 
