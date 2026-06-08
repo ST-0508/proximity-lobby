@@ -10,17 +10,12 @@ const WORLD = { width: 1800, height: 1100 };
 const HEARING_RADIUS = 210;
 const PLAYER_TTL_MS = 30_000;
 const CHAT_TTL_MS = 7_000;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5-mini";
-const SUPPORTED_LANGUAGES = {
-  en: "English",
-  es: "Spanish",
-  ja: "Japanese",
-  fr: "French"
-};
+const STATE_BROADCAST_MS = 100;
 
 const clients = new Map();
 const players = new Map();
 let chats = [];
+let stateBroadcastTimer = null;
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -73,13 +68,6 @@ function safeColor(value) {
 function safeOption(value, allowed, fallback) {
   const text = safeText(value, 24);
   return allowed.includes(text) ? text : fallback;
-}
-
-function translationProviderName() {
-  if (process.env.GOOGLE_TRANSLATE_API_KEY) return "Google Cloud Translation";
-  if (process.env.OPENAI_API_KEY) return `OpenAI ${OPENAI_MODEL}`;
-  if (process.env.LIBRETRANSLATE_URL) return "LibreTranslate";
-  return "offline phrasebook";
 }
 
 function clamp(value, min, max) {
@@ -164,9 +152,18 @@ function sendTo(clientId, type, data) {
 }
 
 function broadcastState() {
+  if (stateBroadcastTimer) {
+    clearTimeout(stateBroadcastTimer);
+    stateBroadcastTimer = null;
+  }
   for (const id of clients.keys()) {
     sendTo(id, "state", stateFor(id));
   }
+}
+
+function scheduleStateBroadcast() {
+  if (stateBroadcastTimer) return;
+  stateBroadcastTimer = setTimeout(broadcastState, STATE_BROADCAST_MS);
 }
 
 function broadcastChat(sender, text) {
@@ -198,173 +195,17 @@ function removePlayer(id) {
   }
 }
 
-function normalizeText(value) {
-  return String(value || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[!?.,]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-const phrasebook = [
-  { en: "hello", es: "hola", ja: "こんにちは", fr: "bonjour" },
-  { en: "hi", es: "hola", ja: "やあ", fr: "salut" },
-  { en: "good morning", es: "buenos dias", ja: "おはよう", fr: "bonjour" },
-  { en: "good evening", es: "buenas noches", ja: "こんばんは", fr: "bonsoir" },
-  { en: "how are you", es: "como estas", ja: "元気ですか", fr: "comment ca va" },
-  { en: "i am good", es: "estoy bien", ja: "元気です", fr: "je vais bien" },
-  { en: "thank you", es: "gracias", ja: "ありがとう", fr: "merci" },
-  { en: "thanks", es: "gracias", ja: "ありがとう", fr: "merci" },
-  { en: "yes", es: "si", ja: "はい", fr: "oui" },
-  { en: "no", es: "no", ja: "いいえ", fr: "non" },
-  { en: "please", es: "por favor", ja: "お願いします", fr: "s'il vous plait" },
-  { en: "sorry", es: "lo siento", ja: "ごめんなさい", fr: "desole" },
-  { en: "where are you", es: "donde estas", ja: "どこですか", fr: "ou es-tu" },
-  { en: "come here", es: "ven aqui", ja: "ここに来て", fr: "viens ici" },
-  { en: "follow me", es: "sigueme", ja: "ついてきて", fr: "suis-moi" },
-  { en: "meet at the stage", es: "nos vemos en el escenario", ja: "ステージで会いましょう", fr: "rendez-vous a la scene" },
-  { en: "meet at the solar farm", es: "nos vemos en la granja solar", ja: "ソーラーファームで会いましょう", fr: "rendez-vous a la ferme solaire" },
-  { en: "nice avatar", es: "bonito avatar", ja: "いいアバターですね", fr: "bel avatar" },
-  { en: "want to chat", es: "quieres chatear", ja: "話しませんか", fr: "tu veux discuter" },
-  { en: "see you later", es: "hasta luego", ja: "またね", fr: "a plus tard" }
-];
-
-function translateWithPhrasebook(text, from, to) {
-  const source = String(text || "").trim();
-  if (!source || from === to) return source;
-
-  const normalized = normalizeText(source);
-  const exact = phrasebook.find((entry) => normalizeText(entry[from]) === normalized);
-  if (exact) return exact[to];
-
-  const translatedWords = normalized.split(" ").map((word) => {
-    const match = phrasebook.find((entry) => normalizeText(entry[from]) === word);
-    return match ? match[to] : word;
-  });
-  const translated = translatedWords.join(to === "ja" ? "" : " ");
-  return translated === normalized ? `${source} (${SUPPORTED_LANGUAGES[to]})` : translated;
-}
-
-function extractOpenAIText(payload) {
-  if (typeof payload.output_text === "string") return payload.output_text.trim();
-  for (const item of payload.output || []) {
-    for (const content of item.content || []) {
-      if (typeof content.text === "string") return content.text.trim();
-    }
-  }
-  return "";
-}
-
-async function translateWithOpenAI(text, from, to) {
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      instructions: [
-        "You are a precise chat translator for a virtual lobby.",
-        "Translate the user's message naturally and faithfully.",
-        "Preserve names, emoji, URLs, punctuation style, and casual tone.",
-        "Return only the translated text. Do not add explanations."
-      ].join(" "),
-      input: `Translate from ${SUPPORTED_LANGUAGES[from]} to ${SUPPORTED_LANGUAGES[to]}:\n${text}`
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`OpenAI translation failed with ${response.status}`);
-  }
-
-  const payload = await response.json();
-  return extractOpenAIText(payload);
-}
-
-async function translateWithGoogle(text, from, to) {
-  const response = await fetch(
-    `https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(process.env.GOOGLE_TRANSLATE_API_KEY)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        q: text,
-        source: from,
-        target: to,
-        format: "text"
-      })
-    }
-  );
-
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`Google translation failed with ${response.status}: ${detail.slice(0, 180)}`);
-  }
-
-  const payload = await response.json();
-  return String(payload.data?.translations?.[0]?.translatedText || "").trim();
-}
-
-async function translateWithLibreTranslate(text, from, to) {
-  const baseUrl = process.env.LIBRETRANSLATE_URL.replace(/\/$/, "");
-  const response = await fetch(`${baseUrl}/translate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      q: text,
-      source: from,
-      target: to,
-      format: "text",
-      api_key: process.env.LIBRETRANSLATE_API_KEY || undefined
-    })
-  });
-
-  if (!response.ok) {
-    throw new Error(`LibreTranslate failed with ${response.status}`);
-  }
-
-  const payload = await response.json();
-  return String(payload.translatedText || "").trim();
-}
-
-async function translateMessage(text, from, to) {
-  if (from === to) {
-    return { translatedText: text, provider: "same-language" };
-  }
-
-  if (process.env.GOOGLE_TRANSLATE_API_KEY) {
-    return { translatedText: await translateWithGoogle(text, from, to), provider: "google" };
-  }
-
-  if (process.env.OPENAI_API_KEY) {
-    return { translatedText: await translateWithOpenAI(text, from, to), provider: "openai" };
-  }
-
-  if (process.env.LIBRETRANSLATE_URL) {
-    return { translatedText: await translateWithLibreTranslate(text, from, to), provider: "libretranslate" };
-  }
-
-  return { translatedText: translateWithPhrasebook(text, from, to), provider: "offline phrasebook" };
-}
-
 async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/health") {
     json(res, 200, {
       ok: true,
-      players: players.size,
-      translationProvider: translationProviderName()
+      players: players.size
     });
     return true;
   }
 
   if (req.method === "GET" && url.pathname === "/api/config") {
-    json(res, 200, {
-      translationProvider: translationProviderName(),
-      languages: SUPPORTED_LANGUAGES
-    });
+    json(res, 200, {});
     return true;
   }
 
@@ -387,7 +228,7 @@ async function handleApi(req, res, url) {
     player.direction = safeText(data.direction, 8) || player.direction;
     player.lastSeen = Date.now();
     json(res, 200, { ok: true });
-    broadcastState();
+    scheduleStateBroadcast();
     return true;
   }
 
@@ -403,25 +244,6 @@ async function handleApi(req, res, url) {
     player.lastSeen = Date.now();
     broadcastChat(player, text);
     json(res, 200, { ok: true });
-    return true;
-  }
-
-  if (req.method === "POST" && url.pathname === "/api/translate") {
-    const data = await readBody(req);
-    const text = safeText(data.text, 500);
-    const from = safeOption(data.from, Object.keys(SUPPORTED_LANGUAGES), "en");
-    const to = safeOption(data.to, Object.keys(SUPPORTED_LANGUAGES), "es");
-
-    if (!text) {
-      json(res, 400, { error: "Missing text" });
-      return true;
-    }
-
-    const result = await translateMessage(text, from, to);
-    json(res, 200, {
-      translatedText: safeText(result.translatedText, 700),
-      provider: result.provider
-    });
     return true;
   }
 
@@ -511,5 +333,4 @@ setInterval(() => {
 server.listen(PORT, HOST, () => {
   console.log(`Virtual lobby running at http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}`);
   console.log(`Listening on ${HOST}:${PORT}`);
-  console.log(`Translation provider: ${translationProviderName()}`);
 });

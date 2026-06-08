@@ -13,12 +13,6 @@ const messages = document.querySelector("#messages");
 const messageInput = document.querySelector("#messageInput");
 const chatHint = document.querySelector("#chatHint");
 const swatches = document.querySelector("#swatches");
-const translateInput = document.querySelector("#translateInput");
-const translationOutput = document.querySelector("#translationOutput");
-const translateFrom = document.querySelector("#translateFrom");
-const translateTo = document.querySelector("#translateTo");
-const autoTranslateInput = document.querySelector("#autoTranslateInput");
-const useTranslationButton = document.querySelector("#useTranslationButton");
 const touchControls = document.querySelector("#touchControls");
 
 const keys = new Set();
@@ -35,17 +29,8 @@ let state = {
 let camera = { x: 0, y: 0, scale: 1 };
 let lastMoveSent = 0;
 let lastLocalMove = performance.now();
-
-const languageNames = {
-  en: "English",
-  es: "Spanish",
-  ja: "Japanese",
-  fr: "French"
-};
-
-let translationRequestId = 0;
-let lastTranslation = "";
-let translationProvider = "checking";
+let moveInFlight = false;
+let pendingMove = null;
 
 function escapeHtml(value) {
   return String(value)
@@ -65,56 +50,6 @@ function api(path, data) {
     if (!response.ok) throw new Error(`Request failed: ${response.status}`);
     return response.json();
   });
-}
-
-async function fetchConfig() {
-  const response = await fetch("/api/config");
-  if (!response.ok) return;
-  const config = await response.json();
-  translationProvider = config.translationProvider || translationProvider;
-  translationOutput.title = `Provider: ${translationProvider}`;
-}
-
-async function translateText(text, from, to) {
-  const source = String(text || "").trim();
-  if (!source) return { translatedText: "", provider: translationProvider };
-  if (from === to) return { translatedText: source, provider: "same-language" };
-
-  const result = await api("/api/translate", { text: source, from, to });
-  translationProvider = result.provider || translationProvider;
-  translationOutput.title = `Provider: ${translationProvider}`;
-  return {
-    translatedText: result.translatedText || "",
-    provider: translationProvider
-  };
-}
-
-async function currentTranslation() {
-  const result = await translateText(translateInput.value, translateFrom.value, translateTo.value);
-  return result.translatedText;
-}
-
-async function updateTranslation() {
-  const text = translateInput.value.trim();
-  const requestId = ++translationRequestId;
-
-  if (!text) {
-    lastTranslation = "";
-    translationOutput.textContent = "Translation appears here.";
-    return;
-  }
-
-  translationOutput.textContent = "Translating...";
-  try {
-    const result = await translateText(text, translateFrom.value, translateTo.value);
-    if (requestId !== translationRequestId) return;
-    lastTranslation = result.translatedText;
-    translationOutput.textContent = lastTranslation || "No translation returned.";
-  } catch {
-    if (requestId !== translationRequestId) return;
-    lastTranslation = "";
-    translationOutput.textContent = "Translation is unavailable. Check the server provider settings.";
-  }
 }
 
 function fitCamera() {
@@ -189,13 +124,19 @@ function renderHud() {
 }
 
 function render() {
-  self = state.players.find((player) => player.id === selfId) || self;
+  const serverSelf = state.players.find((player) => player.id === selfId);
+  if (!self || !isMoving()) {
+    self = serverSelf || self;
+  }
+  if (self && serverSelf && isMoving()) {
+    Object.assign(serverSelf, self);
+  }
   renderPlayers();
   renderHud();
   fitCamera();
 }
 
-async function showChat(chat) {
+function showChat(chat) {
   const bubble = document.createElement("div");
   bubble.className = "bubble";
   bubble.style.left = `${chat.x}px`;
@@ -209,26 +150,6 @@ async function showChat(chat) {
   row.innerHTML = `<strong>${escapeHtml(chat.fromName)}</strong><span>${escapeHtml(chat.text)}</span>`;
   messages.appendChild(row);
   messages.scrollTop = messages.scrollHeight;
-
-  if (!autoTranslateInput.checked) return;
-
-  try {
-    const result = await translateText(chat.text, translateFrom.value, translateTo.value);
-    if (!result.translatedText || result.translatedText === chat.text) return;
-    const translatedLine = document.createElement("span");
-    translatedLine.className = "translated-line";
-    translatedLine.textContent = result.translatedText;
-    row.appendChild(translatedLine);
-
-    const bubbleLine = translatedLine.cloneNode(true);
-    bubble.appendChild(bubbleLine);
-    messages.scrollTop = messages.scrollHeight;
-  } catch {
-    const failedLine = document.createElement("span");
-    failedLine.className = "translated-line";
-    failedLine.textContent = "Translation unavailable.";
-    row.appendChild(failedLine);
-  }
 }
 
 function connectEvents() {
@@ -271,10 +192,40 @@ function moveSelf(deltaSeconds) {
   const now = performance.now();
   if (now - lastMoveSent > 90) {
     lastMoveSent = now;
-    api("/api/move", self).catch(() => {
-      statusText.textContent = "Could not send movement.";
-    });
+    sendMove(self);
   }
+}
+
+function isMoving() {
+  return keys.has("ArrowLeft") || keys.has("ArrowRight") || keys.has("ArrowUp") || keys.has("ArrowDown") || keys.has("a") || keys.has("d") || keys.has("w") || keys.has("s");
+}
+
+function sendMove(player) {
+  const move = {
+    id: player.id,
+    x: player.x,
+    y: player.y,
+    direction: player.direction
+  };
+
+  if (moveInFlight) {
+    pendingMove = move;
+    return;
+  }
+
+  moveInFlight = true;
+  api("/api/move", move)
+    .catch(() => {
+      statusText.textContent = "Could not send movement.";
+    })
+    .finally(() => {
+      moveInFlight = false;
+      if (pendingMove) {
+        const nextMove = pendingMove;
+        pendingMove = null;
+        sendMove(nextMove);
+      }
+    });
 }
 
 function nudgeSelf(key) {
@@ -320,6 +271,13 @@ touchControls.addEventListener("pointerleave", () => {
   keys.delete("ArrowRight");
 });
 
+touchControls.addEventListener("pointercancel", () => {
+  keys.delete("ArrowUp");
+  keys.delete("ArrowDown");
+  keys.delete("ArrowLeft");
+  keys.delete("ArrowRight");
+});
+
 joinForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const name = document.querySelector("#nameInput").value;
@@ -339,20 +297,6 @@ joinForm.addEventListener("submit", async (event) => {
   chatForm.querySelector("button").disabled = false;
   connectEvents();
   render();
-});
-
-translateInput.addEventListener("input", () => {
-  window.clearTimeout(updateTranslation.timer);
-  updateTranslation.timer = window.setTimeout(updateTranslation, 250);
-});
-translateFrom.addEventListener("change", updateTranslation);
-translateTo.addEventListener("change", updateTranslation);
-
-useTranslationButton.addEventListener("click", async () => {
-  const translated = lastTranslation || (await currentTranslation());
-  if (!translated) return;
-  messageInput.value = translated;
-  messageInput.focus();
 });
 
 chatForm.addEventListener("submit", async (event) => {
@@ -387,5 +331,4 @@ window.addEventListener("beforeunload", () => {
 });
 
 requestAnimationFrame(loop);
-fetchConfig();
 render();

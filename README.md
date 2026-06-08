@@ -1,6 +1,6 @@
 # Proximity Lobby
 
-A browser-based virtual lobby with custom avatars, movement, proximity chat, a solar panel farm area, and built-in translation.
+A browser-based virtual lobby with custom avatars, movement, proximity chat, and a solar panel farm area.
 
 ## Run Locally
 
@@ -24,36 +24,6 @@ PORT=3000
 Most hosting platforms set `PORT` automatically. In that case, only set `HOST=0.0.0.0`.
 
 For a temporary public test from your own computer, use a tunnel such as Cloudflare Tunnel or ngrok pointed at `http://localhost:3000`. For a real public website, deploy the repo to a host and attach a domain.
-
-## High-Quality Translation
-
-The browser calls the server at `/api/translate`, so API keys stay private.
-
-For Google Cloud Translation, set:
-
-```bash
-GOOGLE_TRANSLATE_API_KEY=your_google_cloud_translation_key
-```
-
-You must enable **Cloud Translation API** in Google Cloud for that key. Google Cloud Translation is used first when configured.
-
-You can also use OpenAI translation:
-
-```bash
-OPENAI_API_KEY=your_api_key
-OPENAI_MODEL=gpt-5-mini
-```
-
-Without `GOOGLE_TRANSLATE_API_KEY`, `OPENAI_API_KEY`, or `LIBRETRANSLATE_URL`, the app falls back to a small offline phrasebook. That fallback is useful for demos but will not translate arbitrary sentences well.
-
-You can also use a LibreTranslate-compatible service:
-
-```bash
-LIBRETRANSLATE_URL=https://your-libretranslate-server.example
-LIBRETRANSLATE_API_KEY=optional_key
-```
-
-Provider priority is Google Cloud Translation, OpenAI, LibreTranslate, then the offline phrasebook.
 
 ## Health Check
 

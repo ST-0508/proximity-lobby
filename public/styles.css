@@ -29,14 +29,12 @@ body {
 
 button,
 input,
-textarea,
 select {
   font: inherit;
 }
 
 button,
 input,
-textarea,
 select {
   font-size: 16px;
 }
@@ -411,7 +409,6 @@ legend {
 
 .join-panel,
 .chat-panel,
-.translator-panel,
 .people-panel {
   display: grid;
   gap: 14px;
@@ -435,7 +432,6 @@ fieldset {
 }
 
 input,
-textarea,
 select {
   width: 100%;
   border: 1px solid var(--line);
@@ -451,14 +447,7 @@ select {
   min-height: 42px;
 }
 
-textarea {
-  min-height: 78px;
-  padding: 10px 11px;
-  resize: vertical;
-}
-
 input:focus,
-textarea:focus,
 select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 4px rgba(63, 124, 255, 0.14);
@@ -485,7 +474,6 @@ select:focus {
 }
 
 .primary,
-.secondary,
 .chat-form button {
   min-height: 42px;
   border: 0;
@@ -496,13 +484,7 @@ select:focus {
   font-weight: 800;
 }
 
-.secondary {
-  border: 1px solid var(--line);
-  background: #273142;
-}
-
 .primary:hover,
-.secondary:hover,
 .chat-form button:hover:not(:disabled) {
   filter: brightness(0.96);
 }
@@ -548,16 +530,6 @@ select:focus {
   font-size: 12px;
 }
 
-.translated-line {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.bubble .translated-line {
-  display: block;
-  color: #cbd5e1;
-}
-
 .chat-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 76px;
@@ -568,41 +540,6 @@ select:focus {
 .chat-form input:disabled {
   cursor: not-allowed;
   opacity: 0.65;
-}
-
-.translator-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.translator-panel label:not(.toggle-row) {
-  display: grid;
-  gap: 7px;
-}
-
-.toggle-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.toggle-row input {
-  width: 16px;
-  min-height: 16px;
-}
-
-.translation-output {
-  min-height: 54px;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #f8fafc;
-  color: #273142;
-  font-size: 13px;
-  line-height: 1.35;
 }
 
 .people-list {
@@ -671,7 +608,6 @@ select:focus {
   .stage-wrap,
   .join-panel,
   .chat-panel,
-  .translator-panel,
   .people-panel {
     border-radius: 8px;
     box-shadow: none;
@@ -718,14 +654,9 @@ select:focus {
 
   .join-panel,
   .chat-panel,
-  .translator-panel,
   .people-panel {
     gap: 12px;
     padding: 12px;
-  }
-
-  .translator-grid {
-    grid-template-columns: 1fr;
   }
 
   .chat-form {
