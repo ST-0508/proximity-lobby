@@ -19,6 +19,7 @@ const translateFrom = document.querySelector("#translateFrom");
 const translateTo = document.querySelector("#translateTo");
 const autoTranslateInput = document.querySelector("#autoTranslateInput");
 const useTranslationButton = document.querySelector("#useTranslationButton");
+const touchControls = document.querySelector("#touchControls");
 
 const keys = new Set();
 let selectedColor = "#3f7cff";
@@ -296,6 +297,27 @@ swatches.addEventListener("click", (event) => {
   selectedColor = button.dataset.color;
   swatches.querySelectorAll(".swatch").forEach((swatch) => swatch.classList.remove("active"));
   button.classList.add("active");
+});
+
+touchControls.addEventListener("pointerdown", (event) => {
+  const button = event.target.closest("[data-key]");
+  if (!button) return;
+  keys.add(button.dataset.key);
+  nudgeSelf(button.dataset.key);
+  event.preventDefault();
+});
+
+touchControls.addEventListener("pointerup", (event) => {
+  const button = event.target.closest("[data-key]");
+  if (!button) return;
+  keys.delete(button.dataset.key);
+});
+
+touchControls.addEventListener("pointerleave", () => {
+  keys.delete("ArrowUp");
+  keys.delete("ArrowDown");
+  keys.delete("ArrowLeft");
+  keys.delete("ArrowRight");
 });
 
 joinForm.addEventListener("submit", async (event) => {
