@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Proximity Lobby</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="stage-wrap" aria-label="Virtual lobby">
+        <div class="topbar">
+          <div>
+            <h1>Proximity Lobby</h1>
+            <p id="status">Choose a character to enter.</p>
+          </div>
+          <div class="meter" aria-label="Nearby people">
+            <span class="meter-dot"></span>
+            <span id="nearbyCount">0 nearby</span>
+          </div>
+        </div>
+
+        <div class="viewport" id="viewport">
+          <div class="world" id="world">
+            <div class="floor-grid"></div>
+            <div class="zone zone-lounge">Lounge</div>
+            <div class="zone zone-stage">Stage</div>
+            <div class="zone zone-solar" aria-label="Solar panel farm">
+              <span>Solar Farm</span>
+              <div class="solar-array" aria-hidden="true">
+                <i></i><i></i><i></i><i></i>
+                <i></i><i></i><i></i><i></i>
+                <i></i><i></i><i></i><i></i>
+              </div>
+            </div>
+            <div class="radius" id="radius"></div>
+            <div class="players" id="players"></div>
+            <div class="bubbles" id="bubbles"></div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="side-panel">
+        <form class="join-panel" id="joinForm">
+          <h2>Create character</h2>
+          <label>
+            Name
+            <input id="nameInput" maxlength="24" placeholder="Your name" autocomplete="off" required />
+          </label>
+          <label>
+            Icon
+            <select id="faceInput">
+              <option>🙂</option>
+              <option>😎</option>
+              <option>🤖</option>
+              <option>🧙</option>
+              <option>🌟</option>
+              <option>🎧</option>
+              <option>🚀</option>
+              <option>🎨</option>
+              <option>💎</option>
+              <option>⚡</option>
+              <option>🪩</option>
+              <option>🧠</option>
+            </select>
+          </label>
+          <label>
+            Accessory
+            <select id="accessoryInput">
+              <option value="">None</option>
+              <option>👑</option>
+              <option>🎩</option>
+              <option>🕶️</option>
+              <option>🎀</option>
+              <option>⭐</option>
+              <option>🌙</option>
+            </select>
+          </label>
+          <label>
+            Badge
+            <select id="badgeInput">
+              <option>✦</option>
+              <option>●</option>
+              <option>◆</option>
+              <option>▲</option>
+              <option>✚</option>
+              <option>☀</option>
+            </select>
+          </label>
+          <label>
+            Shape
+            <select id="shapeInput">
+              <option value="circle">Circle</option>
+              <option value="square">Square</option>
+              <option value="diamond">Diamond</option>
+            </select>
+          </label>
+          <fieldset>
+            <legend>Color</legend>
+            <div class="swatches" id="swatches">
+              <button type="button" class="swatch active" data-color="#3f7cff" style="--swatch: #3f7cff" aria-label="Blue"></button>
+              <button type="button" class="swatch" data-color="#14a86b" style="--swatch: #14a86b" aria-label="Green"></button>
+              <button type="button" class="swatch" data-color="#eb4d7a" style="--swatch: #eb4d7a" aria-label="Pink"></button>
+              <button type="button" class="swatch" data-color="#f2a93b" style="--swatch: #f2a93b" aria-label="Gold"></button>
+              <button type="button" class="swatch" data-color="#7c5cff" style="--swatch: #7c5cff" aria-label="Violet"></button>
+              <button type="button" class="swatch" data-color="#16a7a0" style="--swatch: #16a7a0" aria-label="Teal"></button>
+              <button type="button" class="swatch" data-color="#ef6f35" style="--swatch: #ef6f35" aria-label="Coral"></button>
+              <button type="button" class="swatch" data-color="#2c3440" style="--swatch: #2c3440" aria-label="Graphite"></button>
+            </div>
+          </fieldset>
+          <button class="primary" type="submit">Enter lobby</button>
+        </form>
+
+        <section class="chat-panel is-disabled" id="chatPanel" aria-label="Proximity chat">
+          <div class="chat-header">
+            <h2>Nearby chat</h2>
+            <span id="chatHint">Move close to talk</span>
+          </div>
+          <div class="messages" id="messages"></div>
+          <form class="chat-form" id="chatForm">
+            <input id="messageInput" maxlength="180" placeholder="Say something nearby..." autocomplete="off" disabled />
+            <button type="submit" disabled>Send</button>
+          </form>
+        </section>
+
+        <section class="translator-panel" id="translatorPanel" aria-label="Translator">
+          <div class="chat-header">
+            <h2>Translator</h2>
+            <label class="toggle-row">
+              <input id="autoTranslateInput" type="checkbox" />
+              Auto
+            </label>
+          </div>
+          <div class="translator-grid">
+            <label>
+              From
+              <select id="translateFrom">
+                <option value="en">English</option>
+                <option value="es">Spanish</option>
+                <option value="ja">Japanese</option>
+                <option value="fr">French</option>
+              </select>
+            </label>
+            <label>
+              To
+              <select id="translateTo">
+                <option value="es">Spanish</option>
+                <option value="ja">Japanese</option>
+                <option value="fr">French</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+          </div>
+          <textarea id="translateInput" maxlength="180" rows="3" placeholder="Translate a short message..."></textarea>
+          <div class="translation-output" id="translationOutput">Translation appears here.</div>
+          <button class="secondary" id="useTranslationButton" type="button">Use in chat</button>
+        </section>
+
+        <section class="people-panel" aria-label="People">
+          <h2>People</h2>
+          <div class="people-list" id="peopleList"></div>
+        </section>
+      </aside>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "proximity-lobby",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A browser-based virtual lobby with custom avatars, movement, and proximity chat.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
