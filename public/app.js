@@ -12,6 +12,11 @@ const chatForm = document.querySelector("#chatForm");
 const messages = document.querySelector("#messages");
 const messageInput = document.querySelector("#messageInput");
 const chatHint = document.querySelector("#chatHint");
+const voicePanel = document.querySelector("#voicePanel");
+const voiceToggle = document.querySelector("#voiceToggle");
+const voiceStatus = document.querySelector("#voiceStatus");
+const voiceList = document.querySelector("#voiceList");
+const remoteAudio = document.querySelector("#remoteAudio");
 const swatches = document.querySelector("#swatches");
 const touchControls = document.querySelector("#touchControls");
 
@@ -31,6 +36,16 @@ let lastMoveSent = 0;
 let lastLocalMove = performance.now();
 let moveInFlight = false;
 let pendingMove = null;
+let localVoiceStream = null;
+let voiceEnabled = false;
+let voiceStarting = false;
+const peers = new Map();
+const remoteAudioEls = new Map();
+const voiceReadyPeers = new Set();
+const announcedVoicePeers = new Set();
+const rtcConfig = {
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+};
 
 function escapeHtml(value) {
   return String(value)
@@ -49,6 +64,17 @@ function api(path, data) {
   }).then((response) => {
     if (!response.ok) throw new Error(`Request failed: ${response.status}`);
     return response.json();
+  });
+}
+
+function postSignal(toId, payload) {
+  if (!selfId) return Promise.resolve();
+  return api("/api/signal", {
+    fromId: selfId,
+    toId,
+    ...payload
+  }).catch(() => {
+    voiceStatus.textContent = "Voice signal failed";
   });
 }
 
@@ -121,6 +147,9 @@ function renderHud() {
   chatPanel.classList.toggle("is-disabled", !self);
   messageInput.disabled = !self;
   chatForm.querySelector("button").disabled = !self;
+  voicePanel.classList.toggle("is-disabled", !self);
+  voiceToggle.disabled = !self || voiceStarting;
+  updateVoiceHud();
 }
 
 function render() {
@@ -133,6 +162,7 @@ function render() {
   }
   renderPlayers();
   renderHud();
+  reconcileVoicePeers();
   fitCamera();
 }
 
@@ -162,9 +192,268 @@ function connectEvents() {
   eventSource.addEventListener("chat", (event) => {
     showChat(JSON.parse(event.data));
   });
+  eventSource.addEventListener("signal", (event) => {
+    handleSignal(JSON.parse(event.data));
+  });
+  eventSource.addEventListener("voice-left", (event) => {
+    const data = JSON.parse(event.data);
+    closePeer(data.id);
+    voiceReadyPeers.delete(data.id);
+    announcedVoicePeers.delete(data.id);
+    updateVoiceHud();
+  });
   eventSource.onerror = () => {
     statusText.textContent = "Connection hiccup. Reconnecting...";
   };
+}
+
+function canUseVoice() {
+  return Boolean(navigator.mediaDevices?.getUserMedia && window.RTCPeerConnection);
+}
+
+async function startVoice() {
+  if (!self || voiceEnabled || voiceStarting) return;
+  if (!canUseVoice()) {
+    voiceStatus.textContent = "Voice unsupported";
+    return;
+  }
+
+  voiceStarting = true;
+  updateVoiceHud();
+
+  try {
+    localVoiceStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    });
+    localVoiceStream.getAudioTracks().forEach((track) => {
+      track.enabled = true;
+    });
+    voiceEnabled = true;
+    await announceVoiceReady();
+    reconcileVoicePeers();
+  } catch {
+    voiceStatus.textContent = "Microphone blocked";
+  } finally {
+    voiceStarting = false;
+    updateVoiceHud();
+  }
+}
+
+function stopVoice() {
+  voiceEnabled = false;
+  voiceReadyPeers.clear();
+  announcedVoicePeers.clear();
+  for (const id of Array.from(peers.keys())) {
+    postSignal(id, { type: "hangup" });
+    closePeer(id);
+  }
+  if (localVoiceStream) {
+    localVoiceStream.getTracks().forEach((track) => track.stop());
+    localVoiceStream = null;
+  }
+  updateVoiceHud();
+}
+
+async function announceVoiceReady() {
+  for (const id of state.nearbyIds) {
+    if (!announcedVoicePeers.has(id)) {
+      announcedVoicePeers.add(id);
+      await postSignal(id, { type: "voice-ready" });
+    }
+  }
+}
+
+function shouldInitiate(peerId) {
+  return selfId && selfId < peerId;
+}
+
+function nearbyVoiceIds() {
+  if (!voiceEnabled) return [];
+  return state.nearbyIds.filter((id) => state.players.some((player) => player.id === id));
+}
+
+function reconcileVoicePeers() {
+  if (!selfId) return;
+  const nearby = new Set(nearbyVoiceIds());
+
+  for (const id of Array.from(peers.keys())) {
+    if (!nearby.has(id)) {
+      postSignal(id, { type: "hangup" });
+      closePeer(id);
+    }
+  }
+  for (const id of Array.from(announcedVoicePeers)) {
+    if (!nearby.has(id)) {
+      announcedVoicePeers.delete(id);
+    }
+  }
+
+  if (!voiceEnabled) return;
+
+  for (const id of nearby) {
+    if (!announcedVoicePeers.has(id)) {
+      announcedVoicePeers.add(id);
+      postSignal(id, { type: "voice-ready" });
+    }
+    if (voiceReadyPeers.has(id) && shouldInitiate(id) && !peers.has(id)) {
+      createPeer(id, true);
+    }
+  }
+  updateVoiceHud();
+}
+
+function createPeer(peerId, makeOffer) {
+  if (!voiceEnabled || !localVoiceStream || peers.has(peerId)) return peers.get(peerId);
+
+  const peer = new RTCPeerConnection(rtcConfig);
+  peers.set(peerId, peer);
+
+  localVoiceStream.getTracks().forEach((track) => {
+    peer.addTrack(track, localVoiceStream);
+  });
+
+  peer.onicecandidate = (event) => {
+    if (event.candidate) {
+      postSignal(peerId, { type: "ice", candidate: event.candidate });
+    }
+  };
+
+  peer.ontrack = (event) => {
+    attachRemoteAudio(peerId, event.streams[0]);
+  };
+
+  peer.onconnectionstatechange = () => {
+    if (["closed", "failed", "disconnected"].includes(peer.connectionState)) {
+      closePeer(peerId);
+    }
+    updateVoiceHud();
+  };
+
+  if (makeOffer) {
+    peer
+      .createOffer()
+      .then((offer) => peer.setLocalDescription(offer))
+      .then(() => postSignal(peerId, { type: "offer", description: peer.localDescription }))
+      .catch(() => closePeer(peerId));
+  }
+
+  updateVoiceHud();
+  return peer;
+}
+
+async function handleSignal(signal) {
+  const peerId = signal.fromId;
+  if (!peerId || peerId === selfId) return;
+
+  if (signal.type === "hangup") {
+    closePeer(peerId);
+    voiceReadyPeers.delete(peerId);
+    announcedVoicePeers.delete(peerId);
+    updateVoiceHud();
+    return;
+  }
+
+  if (signal.type === "voice-ready") {
+    voiceReadyPeers.add(peerId);
+    if (voiceEnabled && state.nearbyIds.includes(peerId) && shouldInitiate(peerId) && !peers.has(peerId)) {
+      createPeer(peerId, true);
+    }
+    updateVoiceHud();
+    return;
+  }
+
+  if (!voiceEnabled || !state.nearbyIds.includes(peerId)) return;
+
+  let peer = peers.get(peerId);
+  if (!peer) {
+    peer = createPeer(peerId, false);
+  }
+  if (!peer) return;
+
+  try {
+    if (signal.type === "offer" && signal.description) {
+      await peer.setRemoteDescription(signal.description);
+      const answer = await peer.createAnswer();
+      await peer.setLocalDescription(answer);
+      await postSignal(peerId, { type: "answer", description: peer.localDescription });
+    }
+
+    if (signal.type === "answer" && signal.description) {
+      await peer.setRemoteDescription(signal.description);
+    }
+
+    if (signal.type === "ice" && signal.candidate) {
+      await peer.addIceCandidate(signal.candidate);
+    }
+  } catch {
+    closePeer(peerId);
+  }
+}
+
+function attachRemoteAudio(peerId, stream) {
+  let audio = remoteAudioEls.get(peerId);
+  if (!audio) {
+    audio = document.createElement("audio");
+    audio.autoplay = true;
+    audio.playsInline = true;
+    remoteAudio.appendChild(audio);
+    remoteAudioEls.set(peerId, audio);
+  }
+  audio.srcObject = stream;
+}
+
+function closePeer(peerId) {
+  const peer = peers.get(peerId);
+  if (peer) {
+    peer.onicecandidate = null;
+    peer.ontrack = null;
+    peer.onconnectionstatechange = null;
+    peer.close();
+    peers.delete(peerId);
+  }
+
+  const audio = remoteAudioEls.get(peerId);
+  if (audio) {
+    audio.srcObject = null;
+    audio.remove();
+    remoteAudioEls.delete(peerId);
+  }
+  updateVoiceHud();
+}
+
+function updateVoiceHud() {
+  if (!self) {
+    voiceStatus.textContent = "Off";
+    voiceList.textContent = "Enter the lobby to use voice.";
+    voiceToggle.textContent = "Start voice";
+    voiceToggle.classList.remove("is-on");
+    return;
+  }
+
+  if (voiceStarting) {
+    voiceStatus.textContent = "Starting";
+    voiceList.textContent = "Waiting for microphone permission.";
+    return;
+  }
+
+  voiceToggle.textContent = voiceEnabled ? "Stop voice" : "Start voice";
+  voiceToggle.classList.toggle("is-on", voiceEnabled);
+
+  if (!voiceEnabled) {
+    voiceStatus.textContent = "Off";
+    voiceList.textContent = "Voice is off.";
+    return;
+  }
+
+  const connectedNames = Array.from(peers.keys())
+    .map((id) => state.players.find((player) => player.id === id)?.name)
+    .filter(Boolean);
+  voiceStatus.textContent = connectedNames.length ? `${connectedNames.length} connected` : "On";
+  voiceList.textContent = connectedNames.length ? connectedNames.join(", ") : "Move near someone with voice on.";
 }
 
 function moveSelf(deltaSeconds) {
@@ -278,6 +567,14 @@ touchControls.addEventListener("pointercancel", () => {
   keys.delete("ArrowRight");
 });
 
+voiceToggle.addEventListener("click", () => {
+  if (voiceEnabled) {
+    stopVoice();
+  } else {
+    startVoice();
+  }
+});
+
 joinForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const name = document.querySelector("#nameInput").value;
@@ -326,6 +623,9 @@ window.addEventListener("resize", fitCamera);
 
 window.addEventListener("beforeunload", () => {
   if (selfId) {
+    for (const id of peers.keys()) {
+      navigator.sendBeacon("/api/signal", JSON.stringify({ fromId: selfId, toId: id, type: "hangup" }));
+    }
     navigator.sendBeacon("/api/leave", JSON.stringify({ id: selfId }));
   }
 });

@@ -129,12 +129,22 @@
           </form>
         </section>
 
+        <section class="voice-panel is-disabled" id="voicePanel" aria-label="Proximity voice chat">
+          <div class="chat-header">
+            <h2>Voice chat</h2>
+            <span id="voiceStatus">Off</span>
+          </div>
+          <button class="voice-toggle" id="voiceToggle" type="button" disabled>Start voice</button>
+          <div class="voice-list" id="voiceList">No voice connections.</div>
+        </section>
+
         <section class="people-panel" aria-label="People">
           <h2>People</h2>
           <div class="people-list" id="peopleList"></div>
         </section>
       </aside>
     </main>
+    <div class="remote-audio" id="remoteAudio" aria-hidden="true"></div>
 
     <script src="/app.js"></script>
   </body>

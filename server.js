@@ -191,6 +191,9 @@ function broadcastChat(sender, text) {
 function removePlayer(id) {
   clients.delete(id);
   if (players.delete(id)) {
+    for (const peerId of clients.keys()) {
+      sendTo(peerId, "voice-left", { id });
+    }
     broadcastState();
   }
 }
@@ -243,6 +246,36 @@ async function handleApi(req, res, url) {
 
     player.lastSeen = Date.now();
     broadcastChat(player, text);
+    json(res, 200, { ok: true });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/signal") {
+    const data = await readBody(req);
+    const fromId = String(data.fromId || "");
+    const toId = String(data.toId || "");
+    const type = safeOption(data.type, ["voice-ready", "offer", "answer", "ice", "hangup"], "");
+
+    if (!players.has(fromId) || !players.has(toId) || !type) {
+      json(res, 400, { error: "Invalid signal" });
+      return true;
+    }
+
+    if (type !== "hangup") {
+      const from = players.get(fromId);
+      const to = players.get(toId);
+      if (!from || !to || distance(from, to) > HEARING_RADIUS) {
+        json(res, 403, { error: "Players are outside voice range" });
+        return true;
+      }
+    }
+
+    sendTo(toId, "signal", {
+      fromId,
+      type,
+      description: data.description || null,
+      candidate: data.candidate || null
+    });
     json(res, 200, { ok: true });
     return true;
   }
